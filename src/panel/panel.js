@@ -892,6 +892,7 @@ function _captureErrorContext() {
         ms_redeem_threshold: cfg.ms_redeem_threshold,
         ms_run_with_main_chain: !!cfg.ms_run_with_main_chain,
         ae_credsSet: has('AE_EMAIL') && has('AE_PASSWORD'),
+        joybuy_credsSet: (has('JOYBUY_EMAIL') || has('EMAIL')) && (has('JOYBUY_PASSWORD') || has('PASSWORD')),
         pg_credsSet: has('PG_EMAIL') || has('EMAIL'),
         eg_credsSet: has('EG_EMAIL') || has('EMAIL'),
         steam_credsSet: has('STEAM_EMAIL') || has('EMAIL'),
@@ -3193,12 +3194,14 @@ async function getState() {
     nextScheduledRun: effectiveNext ? datetime(effectiveNext) : null,
     nextMainRun: effectiveMain ? datetime(effectiveMain) : null,
     nextMsRun: effectiveMs ? datetime(effectiveMs) : null,
+    nextJoybuyRun: effectiveJoybuy ? datetime(effectiveJoybuy) : null,
     // ISO timestamps (UTC with Z) — unambiguous across browser/server TZs.
     // Panel uses these for both display formatting and countdown math so a
     // browser in a different TZ from the server sees the right wall time.
     nextScheduledRunIso: effectiveNext ? effectiveNext.toISOString() : null,
     nextMainRunIso: effectiveMain ? effectiveMain.toISOString() : null,
     nextMsRunIso: effectiveMs ? effectiveMs.toISOString() : null,
+    nextJoybuyRunIso: effectiveJoybuy ? effectiveJoybuy.toISOString() : null,
     serverTimezone: (() => {
       try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
       catch { return null; }
@@ -3502,6 +3505,34 @@ async function getAliexpressData() {
   return { latestBalance, latestAt, weekEarned, monthEarned, row };
 }
 
+// Joybuy tracks a daily point balance in data/joybuy.json (written by
+// joybuy.js). Similar shape to AliExpress — we surface the latest balance
+// and per-window "earned" totals in the Stats tab.
+async function getJoybuyData() {
+  let db;
+  try { db = await jsonDb('joybuy.json', { runs: [] }); }
+  catch { return { latestBalance: null, latestAt: null, weekEarned: 0, monthEarned: 0, row: null }; }
+  const runs = (db.data && Array.isArray(db.data.runs)) ? db.data.runs : [];
+  const now = Date.now();
+  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+  const toMs = s => { const d = parseLocalDateTime(s); return d ? d.getTime() : 0; };
+  let latestBalance = null, latestAt = null, latestMs = 0;
+  let weekEarned = 0, monthEarned = 0, allTimeEarned = 0;
+  for (const r of runs) {
+    const tMs = toMs(r.at);
+    const earned = Number.isFinite(r.earned) ? Math.max(0, r.earned) : 0;
+    allTimeEarned += earned;
+    if (tMs >= weekAgo)  weekEarned  += earned;
+    if (tMs >= monthAgo) monthEarned += earned;
+    if (r.balance != null && tMs >= latestMs) { latestBalance = r.balance; latestAt = r.at; latestMs = tMs; }
+  }
+  const row = runs.length
+    ? { thisWeek: weekEarned, thisMonth: monthEarned, allTime: allTimeEarned, lastClaimAt: latestAt, unit: 'points' }
+    : null;
+  return { latestBalance, latestAt, weekEarned, monthEarned, row };
+}
+
 async function getStatsSummary() {
   const [claims, ms] = await Promise.all([readAllClaims(), getMsRewards()]);
   const now = Date.now();
@@ -3530,7 +3561,7 @@ async function getStatsSummary() {
 }
 
 async function getStatsByService() {
-  const [claims, ms, ae] = await Promise.all([readAllClaims(), getMsRewards(), getAliexpressData()]);
+  const [claims, ms, ae, jb] = await Promise.all([readAllClaims(), getMsRewards(), getAliexpressData(), getJoybuyData()]);
   const rows = {};
   for (const svc of Object.keys(CLAIM_DB_FILES)) {
     rows[svc] = { id: svc, unit: 'games', thisWeek: 0, thisMonth: 0, allTime: 0, lastClaimAt: null };
@@ -3540,6 +3571,9 @@ async function getStatsByService() {
   rows['microsoft-mobile'] = { id: 'microsoft-mobile', ...ms.bySession['microsoft-mobile'] };
   if (ae.row) {
     rows['aliexpress'] = { id: 'aliexpress', ...ae.row };
+  }
+  if (jb.row) {
+    rows['joybuy'] = { id: 'joybuy', ...jb.row };
   }
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -5387,7 +5421,7 @@ function renderDiagnosticContext(ctx) {
     flagBits.push('ms_search_delay_max=' + (f.ms_search_delay_max ?? '?') + ', ms_redeem_threshold=' + (f.ms_redeem_threshold ?? '?') + ', ms_run_with_main_chain=' + !!f.ms_run_with_main_chain);
     const credsSet = [];
     const credsMiss = [];
-    const credKeys = [['prime-gaming', 'pg_credsSet'], ['epic-games', 'eg_credsSet'], ['steam', 'steam_credsSet'], ['gog', 'gog_credsSet'], ['microsoft', 'ms_credsSet'], ['aliexpress', 'ae_credsSet']];
+    const credKeys = [['prime-gaming', 'pg_credsSet'], ['epic-games', 'eg_credsSet'], ['steam', 'steam_credsSet'], ['gog', 'gog_credsSet'], ['microsoft', 'ms_credsSet'], ['aliexpress', 'ae_credsSet'], ['joybuy', 'joybuy_credsSet']];
     for (const [name, key] of credKeys) (f[key] ? credsSet : credsMiss).push(name);
     flagBits.push('credentials set: ' + (credsSet.join(', ') || '(none)') + (credsMiss.length ? ' — missing: ' + credsMiss.join(', ') : ''));
     flagBits.push('notify_level=' + (f.notify_level || '?') + ', base_path=' + (f.base_path_set ? 'set' : 'unset') + ', public_url=' + (f.public_url_set ? 'set' : 'unset') + ', novnc_url=' + (f.novnc_url_set ? 'set' : 'unset'));
@@ -6568,6 +6602,8 @@ function serviceSummary(id) {
     }
     case 'aliexpress':
       return 'Daily check-in coins · mobile site';
+    case 'joybuy':
+      return 'Daily check-in JoyPoints · mobile site';
     default:
       return '';
   }
@@ -7499,6 +7535,7 @@ function renderScheduleTab() {
   const sites = state.sites || [];
   const activeGames = sites.filter(s => s.active && GAME_IDS.has(s.id));
   const hasAE = sites.some(s => s.active && s.id === 'aliexpress');
+  const hasJB = sites.some(s => s.active && s.id === 'joybuy');
   const hasMS = sites.some(s => s.active && s.id === 'microsoft');
   // Watchers are in state.watchers (not state.sites). They run on each
   // main-chain fire as part of the bash command — listing them in the
@@ -7510,7 +7547,7 @@ function renderScheduleTab() {
   const lenovoWatcher = allWatchers.find(w => w.id === 'lenovo-gaming');
   const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
   standardWatchers.sort(byName);
-  const activeCount = activeGames.length + (hasAE ? 1 : 0) + (hasMS ? 1 : 0)
+  const activeCount = activeGames.length + (hasAE ? 1 : 0) + (hasJB ? 1 : 0) + (hasMS ? 1 : 0)
     + standardWatchers.length + (lenovoWatcher ? 1 : 0);
 
   const svcLines = [];
@@ -7519,6 +7556,9 @@ function renderScheduleTab() {
   }
   if (hasAE) {
     svcLines.push('<b>AliExpress</b> — collect daily check-in coins <span class="muted">(no specific window; runs on each scheduled fire)</span>');
+  }
+  if (hasJB) {
+    svcLines.push('<b>Joybuy</b> — collect daily check-in JoyPoints <span class="muted">(no specific window; runs on each scheduled fire)</span>');
   }
   if (hasMS) {
     if ((state.msScheduleHours || 0) > 0) {
@@ -7761,13 +7801,22 @@ function formatRunHistoryLabel(run) {
   const icon = run.status === 'success' ? '✓' : '✗';
   const dur = fmtRunDuration(run.durationSec);
   // One headline counter per row instead of all of them — pick the most
-  // informative based on what was non-zero. Order: claimed, pts (MS),
-  // coins (AE), owned (no-op runs).
+  // informative based on what was non-zero.
+  const isDedicatedPointsRun = run.source === 'panel:joybuy' ||
+                               run.source === 'panel:microsoft' ||
+                               (run.source && run.source.startsWith('scheduler-ms:'));
   let counter = '';
-  if (sum.claimed) counter = ' — ' + sum.claimed + ' claimed';
-  else if (sum.pointsEarned) counter = ' — ' + sum.pointsEarned + ' pts';
-  else if (sum.coins) counter = ' — ' + sum.coins + ' coins';
-  else if (sum.alreadyOwned) counter = ' — ' + sum.alreadyOwned + ' owned';
+  if (isDedicatedPointsRun && sum.pointsEarned != null) {
+    counter = ' — ' + sum.pointsEarned + ' pts';
+  } else if (sum.claimed) {
+    counter = ' — ' + sum.claimed + ' claimed';
+  } else if (sum.pointsEarned) {
+    counter = ' — ' + sum.pointsEarned + ' pts';
+  } else if (sum.coins) {
+    counter = ' — ' + sum.coins + ' coins';
+  } else if (sum.alreadyOwned) {
+    counter = ' — ' + sum.alreadyOwned + ' owned';
+  }
   return icon + ' ' + ts + ' (' + dur + ')' + counter;
 }
 
@@ -9093,7 +9142,7 @@ function openRunPicker() {
   const groups = { game: [], points: [], watch: [] };
   active.forEach(s => {
     const cat = s.scheduleKind === 'watch-only' ? 'watch'
-      : (s.id === 'aliexpress' || (s.id || '').indexOf('microsoft') === 0) ? 'points'
+      : (s.id === 'aliexpress' || s.id === 'joybuy' || (s.id || '').indexOf('microsoft') === 0) ? 'points'
       : 'game';
     groups[cat].push(s);
   });
@@ -9124,9 +9173,9 @@ function openRunPicker() {
   };
 
   let html = '';
-  html += renderGroup('Claimers', groups.game.filter(s => s.id !== 'aliexpress'));
-  // AliExpress is daily-chain but conceptually a points collector; show it with MS.
-  const pointsGroup = groups.points.concat(groups.game.filter(s => s.id === 'aliexpress'));
+  html += renderGroup('Claimers', groups.game.filter(s => s.id !== 'aliexpress' && s.id !== 'joybuy'));
+  // AliExpress and Joybuy are daily-chain but conceptually points collectors; show with MS.
+  const pointsGroup = groups.points.concat(groups.game.filter(s => s.id === 'aliexpress' || s.id === 'joybuy'));
   pointsGroup.sort(byName);
   html += renderGroup('Point / coin collectors', pointsGroup);
   html += renderGroup('Watchers', groups.watch);
@@ -11234,6 +11283,7 @@ server.listen(PANEL_PORT, async () => {
     const sweepDirs = [
       cfg.dir.browser,
       cfg.dir.browser + '-aliexpress',
+      cfg.dir.browser + '-joybuy',
       cfg.dir.browser + '-mobile',
       cfg.dir.browser + '-lenovo',
     ];
