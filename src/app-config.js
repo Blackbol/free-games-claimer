@@ -90,8 +90,8 @@ export const CONFIG_SCHEMA = [
   { path: 'scheduler.loopSeconds',     env: 'LOOP',              type: 'number',  default: 0, coerce: v => Number(v) || 0 },
   { path: 'scheduler.dailyStartTime',  env: 'START_TIME',        type: 'string',  default: '', coerce: coerceHHMM,
     validate: v => v === '' || HHMM_RE.test(v) ? null : 'expected HH:MM (24h) or empty' },
-  { path: 'scheduler.msScheduleHours',     env: 'MS_SCHEDULE_HOURS',     type: 'number',  default: 0, coerce: v => Number(v) || 0 },
-  { path: 'scheduler.msScheduleStart',     env: 'MS_SCHEDULE_START',     type: 'number',  default: 8, coerce: v => Number(v) || 0 },
+  { path: 'scheduler.msScheduleHours', env: 'MS_SCHEDULE_HOURS', type: 'number',  default: 0, coerce: v => Number(v) || 0 },
+  { path: 'scheduler.msScheduleStart', env: 'MS_SCHEDULE_START', type: 'number',  default: 8, coerce: v => Number(v) || 0 },
   // Day-of-week mask on the anchored scheduler (#108). Array of ints in
   // [0..6] using JavaScript Date.getDay() numbering: 0 = Sunday, 6 = Sat.
   // Default = all seven days (existing daily behavior; existing deploys
@@ -526,8 +526,8 @@ export function getSchedulerConfig() {
   return {
     loop:            s.loopSeconds     ?? 0,
     dailyStartTime:  s.dailyStartTime  ?? '',
-    msHours:         s.msScheduleHours     ?? 0,
-    msStart:         s.msScheduleStart     ?? 8,
+    msHours:         s.msScheduleHours ?? 0,
+    msStart:         s.msScheduleStart ?? 8,
     dailyStartDays:  days,
   };
 }

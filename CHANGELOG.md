@@ -4,7 +4,7 @@ Release notes for [Feldorn's Free Games Claimer](README.md). Most recent at the 
 
 ---
 
-## What's new in (unreleased)
+## What's new in 2.12.22
 
 **Joybuy: daily JoyPoints check-in.**
 

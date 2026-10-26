@@ -3194,14 +3194,12 @@ async function getState() {
     nextScheduledRun: effectiveNext ? datetime(effectiveNext) : null,
     nextMainRun: effectiveMain ? datetime(effectiveMain) : null,
     nextMsRun: effectiveMs ? datetime(effectiveMs) : null,
-    nextJoybuyRun: effectiveJoybuy ? datetime(effectiveJoybuy) : null,
     // ISO timestamps (UTC with Z) — unambiguous across browser/server TZs.
     // Panel uses these for both display formatting and countdown math so a
     // browser in a different TZ from the server sees the right wall time.
     nextScheduledRunIso: effectiveNext ? effectiveNext.toISOString() : null,
     nextMainRunIso: effectiveMain ? effectiveMain.toISOString() : null,
     nextMsRunIso: effectiveMs ? effectiveMs.toISOString() : null,
-    nextJoybuyRunIso: effectiveJoybuy ? effectiveJoybuy.toISOString() : null,
     serverTimezone: (() => {
       try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
       catch { return null; }
@@ -7801,22 +7799,13 @@ function formatRunHistoryLabel(run) {
   const icon = run.status === 'success' ? '✓' : '✗';
   const dur = fmtRunDuration(run.durationSec);
   // One headline counter per row instead of all of them — pick the most
-  // informative based on what was non-zero.
-  const isDedicatedPointsRun = run.source === 'panel:joybuy' ||
-                               run.source === 'panel:microsoft' ||
-                               (run.source && run.source.startsWith('scheduler-ms:'));
+  // informative based on what was non-zero. Order: claimed, pts (MS),
+  // coins (AE), owned (no-op runs).
   let counter = '';
-  if (isDedicatedPointsRun && sum.pointsEarned != null) {
-    counter = ' — ' + sum.pointsEarned + ' pts';
-  } else if (sum.claimed) {
-    counter = ' — ' + sum.claimed + ' claimed';
-  } else if (sum.pointsEarned) {
-    counter = ' — ' + sum.pointsEarned + ' pts';
-  } else if (sum.coins) {
-    counter = ' — ' + sum.coins + ' coins';
-  } else if (sum.alreadyOwned) {
-    counter = ' — ' + sum.alreadyOwned + ' owned';
-  }
+  if (sum.claimed) counter = ' — ' + sum.claimed + ' claimed';
+  else if (sum.pointsEarned) counter = ' — ' + sum.pointsEarned + ' pts';
+  else if (sum.coins) counter = ' — ' + sum.coins + ' coins';
+  else if (sum.alreadyOwned) counter = ' — ' + sum.alreadyOwned + ' owned';
   return icon + ' ' + ts + ' (' + dur + ')' + counter;
 }
 
